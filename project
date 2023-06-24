@@ -1,0 +1,132 @@
+install jenkins and docker in jenkins server
+cd /opt
+apt install wget -y
+sudo apt install wget -y
+javac -version
+sudo apt update
+sudo apt install openjdk-11-jdk-headless -y
+javac -version
+curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee     /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc]     https://pkg.jenkins.io/debian-stable binary/ | sudo tee     /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt-get update
+cd /opt
+javac -version
+systemctl enable jenkins
+sudo passwd ubuntu
+systemctl enable jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
+sudo systemctl status jenkins
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+sudo apt install docker.io -y  //install docker
+sudo usermod -aG docker jenkins //add jenkins user to docker group
+sudo systemctl restart jenkins     //restart jenkins
+
+                                        SemesterProject.war
+
+
+install docker in docker server
+sudo apt update -y
+sudo apt install docker.io
+sudo usermod -aG docker ubuntu
+sudo docker info
+docker info
+logout
+docker info //now ubuntu user is in docker group
+
+open jenkins console using jenkins server public ip address annd port number
+3.142.252.74:8080
+---->>> configure jenkins console
+
+new item->item name(java-web-app)->next-pipeline
+
+1)Git Clone
+Pipeline Syntax-snippet Generator-sample Step(git:Git)->pest the git url->Generate Pipeline Script->COPY the script
+==
+stage("Git Clone"){
+        git 'https://github.com/sudip243/Todolist.git'
+    }
+==
+
+2)Maven Package Building
+dashboard->manage jenkins->tools->maven->add maven->name(mvn3.9.2)->save
+==
+stage("Maven Clean Package"){
+        def mavenHome= tool name: "mvn3.9.2",type: "maven"
+        sh "${mavenHome}/bin/mvn clean package"
+    }
+==
+3)Build Docker Image
+before creating a docker image we need to create  a docker file in the git repository
+*docker file(
+FROM tomcat:8.0.20-jre8
+COPY target/SemesterProject.war /usr/local/tomcat/webapps/SemesterProject.war
+)
+
+*as we user jenkins job build nuber as a tag number we have to write
+
+def buildNumber = BUILD_NUMBER
+
+==
+ stage("Build Docker Image"){
+        sh "docker build -t sudipto243/java-web-app:${buildNumber} ."
+    }
+==
+4)Docker login and Push
+after creating a image we need to push it into the dockerhub repository , for login dockerhub repository we need authenticate then we can execute docker push
+Pipeline Syntax-snippet Generator-sample step(with Credential:bind credentialto variables)->Binding(Secret text)->add(jenkis)->kind(secret text)->secret(dockerhubpass)->ID(anything)->description(docker hub password)->add ->variable(dockerhubpass)->generate pipeline script
+(
+withCredentials([string(credentialsId: 'dockerhubpass', variable: 'dockerhubpass')]) {
+sample text
+)
+==
+stage("Docker login and Push"){
+        withCredentials([string(credentialsId: 'dockerhubpass', variable: 'dockerhubpass')]) {
+            sh "docker login -u sudipto243 -p ${dockerhubpass}"
+}
+==
+5)Deploy application as docker container in docker deployment server
+for connecting to the docker server container we need to connect with the server for that we will use ssh plugin
+usign ssh agent plugin we will connect to the deployment server execute some docker command. docker will docker will download the image from repository and will create a container.
+*dashboard->manage jenkins->manage plugin->available->ssh Agent->install without restart
+*Pipeline Syntax->snippet Generator->sample step(sshagent:SSH agent)[this will show only after install sshagent to plug]->add(jenkins)->kind(SSH Username with private key)->ID(Docker_dev-sav-ssh)->username(ubuntu)->privatekey->add(we have to pest the pam file which had been genereated while we creating the instance)->generate pipeline script ->copyt the script
+sshagent(['docker_dev_server_ssh']) {
+     sample text     
+}
+==
+stage("Deploy application as docker container in docker deployment server"){
+        sshagent(['docker_dev_server_ssh']) {
+          sh "ssh -o StrictHostkeyChecking=no ubuntu@172.31.0.85 docker rm -f javawebappcontainer || true"
+          sh "ssh -o StrictHostkeyChecking=no ubuntu@172.31.0.85 docker run -d -p 8080:8080 --name javawebappcontainer sudipto243/java-web-app:${buildNumber}"
+}
+    }
+==
+
+------------------------------------------------------------------------------------------------------------------
+node{
+    def buildNumber = BUILD_NUMBER
+    stage("Git Clone"){
+        git 'https://github.com/sudip243/Todolist.git'
+    }
+    stage("Maven Clean Package"){
+        def mavenHome= tool name: "mvn3.9.2",type: "maven"
+        sh "${mavenHome}/bin/mvn clean package"
+    }
+    stage("Build Docker Image"){
+        sh "docker build -t sudipto243/java-web-app:${buildNumber} ."
+    }
+    stage("Docker login and Push"){
+        withCredentials([string(credentialsId: 'dockerhubpass', variable: 'dockerhubpass')]) {
+            sh "docker login -u sudipto243 -p ${dockerhubpass}"
+}
+        sh "docker push sudipto243/java-web-app:${buildNumber}"
+    }
+    stage("Deploy application as docker container in docker deployment server"){
+        sshagent(['docker_dev_server_ssh']) {
+          sh "ssh -o StrictHostkeyChecking=no ubuntu@172.31.0.85 docker rm -f javawebappcontainer || true"
+          sh "ssh -o StrictHostkeyChecking=no ubuntu@172.31.0.85 docker run -d -p 8080:8080 --name javawebappcontainer sudipto243/java-web-app:${buildNumber}"
+}
+    }
+}
+
+------------------------------------------------------------------------------------------------------------------
